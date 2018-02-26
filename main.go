@@ -1,4 +1,4 @@
-package cloudflare_exporter
+package main
 
 import (
 	"net/http"
