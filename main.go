@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
-	"os"
+	"strings"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
@@ -16,9 +18,18 @@ const (
 	namespace = "cloudflare"
 )
 
+type cloudflareOpts struct {
+	Key                string
+	Email              string
+	ZoneName           []string
+	DashboardAnalytics bool
+	DNSAnalytics       bool
+}
+
 // Exporter collects metrics for a Cloudflare zone.
 type Exporter struct {
-	cf *cloudflare.API
+	cf    *cloudflare.API
+	Zones []cloudflare.Zone
 
 	allRequests      *prometheus.Desc
 	cachedRequests   *prometheus.Desc
@@ -57,165 +68,158 @@ type Exporter struct {
 }
 
 // NewExporter returns an initialized exporter.
-func NewExporter(cfAPI *cloudflare.API) *Exporter {
+func NewExporter(opts cloudflareOpts) (*Exporter, error) {
+	api, err := cloudflare.New(opts.Key, opts.Email)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	zones, zonesErr := api.ListZones(opts.ZoneName...)
+	if zonesErr != nil {
+		return nil, fmt.Errorf("error when listing zones: %s", zonesErr)
+	}
+	if len(zones) == 0 {
+		err := errors.New("couldn't find any zones")
+		if opts.ZoneName != nil {
+			err = fmt.Errorf("couldn't find any zones named %s", strings.Join(opts.ZoneName, ","))
+		}
+		return nil, err
+	}
+
 	return &Exporter{
-		cf: cfAPI,
+		cf:    api,
+		Zones: zones,
 		allRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "total"),
 			"Total number of requests served",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		cachedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "cached"),
 			"Total number of cached requests served",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		uncachedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "uncached"),
 			"Total number of requests served from the origin",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		encryptedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "encrypted"),
 			"The number of requests served over HTTPS",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		unencryptedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "unencrypted"),
 			"The number of requests served over HTTP",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		byStatusRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_status"),
 			"The total number of requests broken out by status code",
-			[]string{"zone_id", "zone_name", "status_code"},
-			nil,
+			[]string{"zone_id", "zone_name", "status_code"}, nil,
 		),
 		byContentTypeRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_content_type"),
 			"The total number of requests broken out by content type",
-			[]string{"zone_id", "zone_name", "content_type"},
-			nil,
+			[]string{"zone_id", "zone_name", "content_type"}, nil,
 		),
 		byCountryRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_country"),
 			"The total number of requests broken out by country",
-			[]string{"zone_id", "zone_name", "country_code"},
-			nil,
+			[]string{"zone_id", "zone_name", "country_code"}, nil,
 		),
 		byIPClassRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_ip_class"),
 			"The total number of requests broken out by IP class",
-			[]string{"zone_id", "zone_name", "ip_class"},
-			nil,
+			[]string{"zone_id", "zone_name", "ip_class"}, nil,
 		),
 
 		totalBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "bandwidth", "total"),
+			prometheus.BuildFQName(namespace, "bandwidth", "total_bytes"),
 			"The total number of bytes served within the time frame",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		cachedBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "bandwidth", "cached"),
+			prometheus.BuildFQName(namespace, "bandwidth", "cached_bytes"),
 			"The total number of bytes that were cached (and served) by Cloudflare",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		uncachedBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "bandwidth", "uncached"),
+			prometheus.BuildFQName(namespace, "bandwidth", "uncached_bytes"),
 			"The total number of bytes that were fetched and served from the origin server",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		encryptedBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "bandwidth", "encrypted"),
+			prometheus.BuildFQName(namespace, "bandwidth", "encrypted_bytes"),
 			"The total number of bytes served over HTTPS",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		unencryptedBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "bandwidth", "unencrypted"),
+			prometheus.BuildFQName(namespace, "bandwidth", "unencrypted_bytes"),
 			"The total number of bytes served over HTTP",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		byContentTypeBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "bandwidth", "by_content_type"),
+			prometheus.BuildFQName(namespace, "bandwidth", "by_content_type_bytes"),
 			"The total number of bytes served broken out by content type",
-			[]string{"zone_id", "zone_name", "content_type"},
-			nil,
+			[]string{"zone_id", "zone_name", "content_type"}, nil,
 		),
 		byCountryBandwidth: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "bandwidth", "by_country"),
+			prometheus.BuildFQName(namespace, "bandwidth", "by_country_bytes"),
 			"The total number of bytes served broken out by country",
-			[]string{"zone_id", "zone_name", "country_code"},
-			nil,
+			[]string{"zone_id", "zone_name", "country_code"}, nil,
 		),
 
 		allThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "threats", "total"),
 			"The total number of identifiable threats received",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		byTypeThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "threats", "by_type"),
 			"The total number of identifiable threats received broken out by type",
-			[]string{"zone_id", "zone_name", "type"},
-			nil,
+			[]string{"zone_id", "zone_name", "type"}, nil,
 		),
 		byCountryThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "threats", "by_country"),
 			"The total number of identifiable threats received broken out by country",
-			[]string{"zone_id", "zone_name", "country_code"},
-			nil,
+			[]string{"zone_id", "zone_name", "country_code"}, nil,
 		),
 
 		allPageviews: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "pageviews", "total"),
 			"The total number of pageviews served",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 		bySearchEnginePageviews: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "pageviews", "by_search_engine"),
 			"The total number of pageviews served broken out by search engine",
-			[]string{"zone_id", "zone_name", "search_engine"},
-			nil,
+			[]string{"zone_id", "zone_name", "search_engine"}, nil,
 		),
 
 		uniqueIPAddresses: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "uniques", "total"),
+			prometheus.BuildFQName(namespace, "unique_ip_addresses", "total"),
 			"Total number of unique IP addresses",
-			[]string{"zone_id", "zone_name"},
-			nil,
+			[]string{"zone_id", "zone_name"}, nil,
 		),
 
 		dnsQueryTotal: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "dns", "queries_total"),
+			prometheus.BuildFQName(namespace, "dns_record", "queries_total"),
 			"Total number of DNS queries",
-			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"},
-			nil,
+			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"}, nil,
 		),
 		uncachedDNSQueries: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "dns", "uncached_queries_total"),
+			prometheus.BuildFQName(namespace, "dns_record", "uncached_queries_total"),
 			"Total number of uncached DNS queries",
-			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"},
-			nil,
+			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"}, nil,
 		),
 		staleDNSQueries: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "dns", "stale_queries_total"),
+			prometheus.BuildFQName(namespace, "dns_record", "stale_queries_total"),
 			"Total number of DNS queries",
-			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"},
-			nil,
+			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"}, nil,
 		),
-	}
+	}, nil
 }
 
 // Describe describes all the metrics exported by the cloudflare exporter. It
@@ -256,32 +260,31 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 // Collect fetches the statistics from the configured cloudflare server, and
 // delivers them as Prometheus metrics. It implements prometheus.Collector.
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
-	zones, err := e.cf.ListZones()
-	if err != nil {
-		log.Fatal(err)
+	for _, zone := range e.Zones {
+		log.Debugf("Getting data for zone %s (%s)", zone.Name, zone.ID)
+		e.getDashboardAnalytics(ch, zone)
+		e.getDNSAnalytics(ch, zone)
 	}
-
-	for _, z := range zones {
-		e.getDashboardAnalytics(ch, z)
-		e.getDNSAnalytics(ch, z)
-	}
-
 }
 
 func (e *Exporter) getDashboardAnalytics(ch chan<- prometheus.Metric, z cloudflare.Zone) {
-	sinceTime := time.Now().Add(-10080 * time.Minute).UTC() // 7 days
+	now := time.Now().UTC()
+	sinceTime := now.Add(-10080 * time.Minute) // 7 days
 	if z.Plan.Price > 200 {
-		sinceTime = time.Now().Add(-30 * time.Minute).UTC() // Anything higher than business gets 1 minute resolution, minimum -30 minutes
+		sinceTime = now.Add(-30 * time.Minute) // Anything higher than business gets 1 minute resolution, minimum -30 minutes
 	} else if z.Plan.Price == 200 {
-		sinceTime = time.Now().Add(-6 * time.Hour).UTC() // Business plans get 15 minute resolution, minimum -6 hours
+		sinceTime = now.Add(-6 * time.Hour) // Business plans get 15 minute resolution, minimum -6 hours
 	} else if z.Plan.Price == 20 {
-		sinceTime = time.Now().Add(-24 * time.Hour).UTC() // Pro plans get 15 minute resolution, minimum -24 hours
+		sinceTime = now.Add(-24 * time.Hour) // Pro plans get 15 minute resolution, minimum -24 hours
 	}
+	continuous := false
 	data, err := e.cf.ZoneAnalyticsDashboard(z.ID, cloudflare.ZoneAnalyticsOptions{
-		Since: &sinceTime,
+		Since:      &sinceTime,
+		Until:      &now,
+		Continuous: &continuous,
 	})
 	if err != nil {
-		log.Errorf("Failed to get dashboard analytics from Cloudflare for zone %s: %s", z.Name, err)
+		log.Errorf("failed to get dashboard analytics from cloudflare for zone %s: %s", z.Name, err)
 		return
 	}
 
@@ -324,7 +327,7 @@ func (e *Exporter) getDashboardAnalytics(ch chan<- prometheus.Metric, z cloudfla
 	}
 
 	ch <- prometheus.MustNewConstMetric(e.allPageviews, prometheus.GaugeValue, float64(data.Totals.Pageviews.All), z.ID, z.Name)
-	for searchEngine, count := range data.Totals.Pageviews.SearchEngine {
+	for searchEngine, count := range data.Totals.Pageviews.SearchEngines {
 		ch <- prometheus.MustNewConstMetric(e.bySearchEnginePageviews, prometheus.GaugeValue, float64(count), z.ID, z.Name, searchEngine)
 	}
 
@@ -347,7 +350,7 @@ func (e *Exporter) getDNSAnalytics(ch chan<- prometheus.Metric, z cloudflare.Zon
 		Dimensions: dimensions,
 	})
 	if err != nil {
-		log.Errorf("Failed to get DNS analytics from Cloudflare for zone %s: %s", z.Name, err)
+		log.Errorf("failed to get dns analytics from cloudflare for zone %s: %s", z.Name, err)
 		return
 	}
 
@@ -382,9 +385,16 @@ func init() {
 
 func main() {
 	var (
-		listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9150").String()
-		metricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
+		listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry").Default(":9150").String()
+		metricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics").Default("/metrics").String()
+
+		opts = cloudflareOpts{}
 	)
+
+	kingpin.Flag("cloudflare.api-key", "Cloudflare API key $(CF_API_KEY)").Envar("CF_API_KEY").Required().StringVar(&opts.Key)
+	kingpin.Flag("cloudflare.api-email", "Cloudflare API email $(CF_API_EMAIL)").Envar("CF_API_EMAIL").Required().StringVar(&opts.Email)
+	kingpin.Flag("cloudflare.zone-name", "The zone name to monitor. If not provided all domains will be monitored $(CF_ZONE_NAME)").Envar("CF_ZONE_NAME").StringsVar(&opts.ZoneName)
+
 	log.AddFlags(kingpin.CommandLine)
 	kingpin.Version(version.Print("cloudflare_exporter"))
 	kingpin.HelpFlag.Short('h')
@@ -393,24 +403,56 @@ func main() {
 	log.Infoln("Starting cloudflare_exporter", version.Info())
 	log.Infoln("Build context", version.BuildContext())
 
-	api, err := cloudflare.New(os.Getenv("CF_API_KEY"), os.Getenv("CF_API_EMAIL"))
-	if err != nil {
-		log.Fatal(err)
+	// Split CF_ZONE_NAME into slice by comma.
+	if len(opts.ZoneName) > 0 {
+		if strings.Contains(opts.ZoneName[0], ",") {
+			opts.ZoneName = strings.Split(opts.ZoneName[0], ",")
+		}
 	}
 
-	prometheus.MustRegister(NewExporter(api))
+	exporter, err := NewExporter(opts)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	prometheus.MustRegister(exporter)
+
+	zoneRows := []string{}
+	zoneNames := []string{}
+	for _, zone := range exporter.Zones {
+		zoneNames = append(zoneNames, zone.Name)
+		zoneRows = append(zoneRows, `<tr><td><a target="_blank" href="https://www.cloudflare.com/a/overview/`+zone.Name+`">`+zone.Name+`</a></td><td>`+zone.ID+`</td></tr>`)
+	}
 
 	http.Handle(*metricsPath, prometheus.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
-               <head><title>Cloudflare Exporter</title></head>
-               <body>
-               <h1>Cloudflare Exporter</h1>
-               <p><a href='` + *metricsPath + `'>Metrics</a></p>
-               </body>
-               </html>`))
+                      <head>
+                       <title>Cloudflare Exporter</title>
+                       <style>table, th, td { border: 1px solid black; text-align: left; }</style>
+                      </head>
+                      <body>
+                        <h1>Cloudflare Exporter</h1>
+                        <p><a href='` + *metricsPath + `'>Metrics</a></p>
+                        <h2>Config</h2>
+                        <h3>Authentication</h3>
+                        <p>Authenticated as ` + opts.Email + `</p>
+                        <h3>Zones</h3>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Name</th>
+                              <th>ID</th>
+                            </tr>
+                          </thead>
+                          <tbody>` + strings.Join(zoneRows, "\n") + `</tbody>
+                        </table>
+                        <h2>Build</h2>
+                        <pre>` + version.Info() + ` ` + version.BuildContext() + `</pre>
+                      </body>
+                    </html>`))
 	})
 	log.Infoln("Starting HTTP server on", *listenAddress)
+	log.Infoln("Monitoring zone(s):", strings.Join(zoneNames, ", "))
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
 
 }
