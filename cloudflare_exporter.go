@@ -385,15 +385,15 @@ func init() {
 
 func main() {
 	var (
-		listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry").Default(":9150").String()
-		metricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics").Default("/metrics").String()
+		listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry $(CLOUDFLARE_EXPORTER_WEB_LISTEN_ADDRESS)").Envar("CLOUDFLARE_EXPORTER_WEB_LISTEN_ADDRESS").Default(":9199").String()
+		metricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics $(CLOUDFLARE_EXPORTER_WEB_TELEMETRY_PATH)").Envar("CLOUDFLARE_EXPORTER_WEB_TELEMETRY_PATH").Default("/metrics").String()
 
 		opts = cloudflareOpts{}
 	)
 
-	kingpin.Flag("cloudflare.api-key", "Cloudflare API key $(CF_API_KEY)").Envar("CF_API_KEY").Required().StringVar(&opts.Key)
-	kingpin.Flag("cloudflare.api-email", "Cloudflare API email $(CF_API_EMAIL)").Envar("CF_API_EMAIL").Required().StringVar(&opts.Email)
-	kingpin.Flag("cloudflare.zone-name", "The zone name to monitor. If not provided all domains will be monitored $(CF_ZONE_NAME)").Envar("CF_ZONE_NAME").StringsVar(&opts.ZoneName)
+	kingpin.Flag("cloudflare.api-key", "Cloudflare API key $(CLOUDFLARE_EXPORTER_API_KEY)").Envar("CLOUDFLARE_EXPORTER_API_KEY").Required().StringVar(&opts.Key)
+	kingpin.Flag("cloudflare.api-email", "Cloudflare API email $(CLOUDFLARE_EXPORTER_API_EMAIL)").Envar("CLOUDFLARE_EXPORTER_API_EMAIL").Required().StringVar(&opts.Email)
+	kingpin.Flag("cloudflare.zone-name", "Zone name(s) to monitor. Provide flag multiple times or comma separated list in environment variable. If not provided, all zones will be monitored. $(CLOUDFLARE_EXPORTER_ZONE_NAME)").Envar("CLOUDFLARE_EXPORTER_ZONE_NAME").StringsVar(&opts.ZoneName)
 
 	log.AddFlags(kingpin.CommandLine)
 	kingpin.Version(version.Print("cloudflare_exporter"))
