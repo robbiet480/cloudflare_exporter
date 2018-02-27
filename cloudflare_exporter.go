@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +21,8 @@ const (
 	namespace = "cloudflare"
 )
 
+var coloIDRegex = regexp.MustCompile(`(.*) - \((.*)\)`)
+
 type cloudflareOpts struct {
 	Key                string
 	Email              string
@@ -30,6 +35,7 @@ type cloudflareOpts struct {
 type Exporter struct {
 	cf    *cloudflare.API
 	Zones []cloudflare.Zone
+	colos map[string]colo
 
 	allRequests      *prometheus.Desc
 	cachedRequests   *prometheus.Desc
@@ -65,6 +71,11 @@ type Exporter struct {
 	dnsQueryTotal      *prometheus.Desc
 	uncachedDNSQueries *prometheus.Desc
 	staleDNSQueries    *prometheus.Desc
+
+	popStatus     *prometheus.Desc
+	serviceStatus *prometheus.Desc
+	regionStatus  *prometheus.Desc
+	overallStatus *prometheus.Desc
 }
 
 // NewExporter returns an initialized exporter.
@@ -89,6 +100,7 @@ func NewExporter(opts cloudflareOpts) (*Exporter, error) {
 	return &Exporter{
 		cf:    api,
 		Zones: zones,
+		colos: map[string]colo{},
 		allRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "total"),
 			"Total number of requests served",
@@ -207,17 +219,41 @@ func NewExporter(opts cloudflareOpts) (*Exporter, error) {
 		dnsQueryTotal: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "dns_record", "queries_total"),
 			"Total number of DNS queries",
-			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"}, nil,
+			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_id", "query_type", "colo_name", "colo_region"}, nil,
 		),
 		uncachedDNSQueries: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "dns_record", "uncached_queries_total"),
 			"Total number of uncached DNS queries",
-			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"}, nil,
+			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_id", "query_type", "colo_name", "colo_region"}, nil,
 		),
 		staleDNSQueries: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "dns_record", "stale_queries_total"),
 			"Total number of DNS queries",
-			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_name", "query_type"}, nil,
+			[]string{"zone_id", "zone_name", "query_name", "response_code", "origin", "tcp", "ip_version", "colo_id", "query_type", "colo_name", "colo_region"}, nil,
+		),
+
+		popStatus: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "pop", "status"),
+			"Cloudflare Point of Presence (PoP) status",
+			[]string{"status", "colo_name", "colo_id", "region_name"}, nil,
+		),
+
+		regionStatus: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "region", "status"),
+			"Cloudflare Region status",
+			[]string{"status", "region_name"}, nil,
+		),
+
+		serviceStatus: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "service", "status"),
+			"Cloudflare service status",
+			[]string{"status", "service_name"}, nil,
+		),
+
+		overallStatus: prometheus.NewDesc(
+			"cloudflare_up",
+			"Cloudflare status",
+			[]string{"indicator", "description"}, nil,
 		),
 	}, nil
 }
@@ -260,6 +296,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 // Collect fetches the statistics from the configured cloudflare server, and
 // delivers them as Prometheus metrics. It implements prometheus.Collector.
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+	e.getStatus(ch)
 	for _, zone := range e.Zones {
 		log.Debugf("Getting data for zone %s (%s)", zone.Name, zone.ID)
 		e.getDashboardAnalytics(ch, zone)
@@ -364,19 +401,123 @@ func (e *Exporter) getDNSAnalytics(ch chan<- prometheus.Metric, z cloudflare.Zon
 		origin := row.Dimensions[2]
 		tcp := row.Dimensions[3]
 		ipVersion := row.Dimensions[4]
-		coloName := "N/A"
+		coloID := "N/A"
 		queryType := "N/A"
+		coloName := "N/A"
+		coloRegion := "N/A"
 		if len(row.Dimensions) >= 6 {
-			coloName = row.Dimensions[5]
+			coloID = row.Dimensions[5]
+			coloName = e.colos[coloID].Name
+			coloRegion = e.colos[coloID].Region
+			if coloID == "SJC-PIG" {
+				coloName = e.colos["SJC"].Name
+				coloRegion = e.colos["SJC"].Region
+			}
 		}
 		if len(row.Dimensions) == 7 {
 			queryType = row.Dimensions[6]
 		}
 
-		ch <- prometheus.MustNewConstMetric(e.dnsQueryTotal, prometheus.GaugeValue, queryCount, z.ID, z.Name, queryName, responseCode, origin, tcp, ipVersion, coloName, queryType)
-		ch <- prometheus.MustNewConstMetric(e.uncachedDNSQueries, prometheus.GaugeValue, uncachedCount, z.ID, z.Name, queryName, responseCode, origin, tcp, ipVersion, coloName, queryType)
-		ch <- prometheus.MustNewConstMetric(e.staleDNSQueries, prometheus.GaugeValue, staleCount, z.ID, z.Name, queryName, responseCode, origin, tcp, ipVersion, coloName, queryType)
+		ch <- prometheus.MustNewConstMetric(e.dnsQueryTotal, prometheus.GaugeValue, queryCount, z.ID, z.Name, queryName, responseCode, origin, tcp, ipVersion, coloID, queryType, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.uncachedDNSQueries, prometheus.GaugeValue, uncachedCount, z.ID, z.Name, queryName, responseCode, origin, tcp, ipVersion, coloID, queryType, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.staleDNSQueries, prometheus.GaugeValue, staleCount, z.ID, z.Name, queryName, responseCode, origin, tcp, ipVersion, coloID, queryType, coloName, coloRegion)
 	}
+}
+
+func getStatusFloat(status string) float64 {
+	if status == "none" || status == "operational" {
+		return float64(1)
+	}
+	return float64(0)
+}
+
+type colo struct {
+	Name   string
+	Code   string
+	Region string
+}
+
+type statusPageSummary struct {
+	Page   interface{} `json:"page"`
+	Status struct {
+		Description string `json:"description"`
+		Indicator   string `json:"indicator"`
+	} `json:"status"`
+	Components []struct {
+		Status             string    `json:"status"`
+		Name               string    `json:"name"`
+		CreatedAt          time.Time `json:"created_at"`
+		UpdatedAt          time.Time `json:"updated_at"`
+		Position           int       `json:"position"`
+		Description        string    `json:"description"`
+		Showcase           bool      `json:"showcase"`
+		ID                 string    `json:"id"`
+		GroupID            string    `json:"group_id"`
+		PageID             string    `json:"page_id"`
+		Group              bool      `json:"group"`
+		OnlyShowIfDegraded bool      `json:"only_show_if_degraded"`
+	} `json:"components"`
+	Incidents             interface{} `json:"incidents"`
+	ScheduledMaintenances interface{} `json:"scheduled_maintenances"`
+}
+
+func (e *Exporter) getStatus(ch chan<- prometheus.Metric) {
+
+	req, err := http.NewRequest(http.MethodGet, "https://www.cloudflarestatus.com/api/v2/summary.json", nil)
+	if err != nil {
+		log.Errorf("failed to get cloudflare status: %s", err)
+		return
+	}
+
+	req.Header.Set("User-Agent", "go-statuspage")
+
+	res, getErr := http.DefaultClient.Do(req)
+	if getErr != nil {
+		log.Errorf("failed to get cloudflare status: %s", getErr)
+		return
+	}
+
+	body, readErr := ioutil.ReadAll(res.Body)
+	if readErr != nil {
+		log.Errorf("failed to get cloudflare status: %s", readErr)
+		return
+	}
+
+	statusSummary := statusPageSummary{}
+	jsonErr := json.Unmarshal(body, &statusSummary)
+	if jsonErr != nil {
+		log.Errorln("failed to get cloudflare status", jsonErr)
+		return
+	}
+
+	groupMap := map[string]string{}
+
+	for _, component := range statusSummary.Components {
+		if component.Group {
+			groupMap[component.ID] = component.Name
+			if !strings.Contains(component.Name, "Cloudflare") {
+				ch <- prometheus.MustNewConstMetric(e.regionStatus, prometheus.GaugeValue, getStatusFloat(component.Status), component.Status, component.Name)
+			}
+		}
+	}
+
+	for _, component := range statusSummary.Components {
+		if component.Group {
+			continue
+		}
+		matches := coloIDRegex.FindStringSubmatch(component.Name)
+		if len(matches) > 0 {
+			coloName := matches[1]
+			coloCode := matches[2]
+			regionName := groupMap[component.GroupID]
+			ch <- prometheus.MustNewConstMetric(e.popStatus, prometheus.GaugeValue, getStatusFloat(component.Status), component.Status, coloName, coloCode, regionName)
+			e.colos[coloCode] = colo{Name: coloName, Code: coloCode, Region: regionName}
+		} else {
+			ch <- prometheus.MustNewConstMetric(e.serviceStatus, prometheus.GaugeValue, getStatusFloat(component.Status), component.Status, component.Name)
+		}
+	}
+
+	ch <- prometheus.MustNewConstMetric(e.overallStatus, prometheus.GaugeValue, getStatusFloat(statusSummary.Status.Indicator), statusSummary.Status.Indicator, statusSummary.Status.Description)
 }
 
 func init() {
