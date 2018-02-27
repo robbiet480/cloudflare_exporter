@@ -104,116 +104,116 @@ func NewExporter(opts cloudflareOpts) (*Exporter, error) {
 		allRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "total"),
 			"Total number of requests served",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		cachedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "cached"),
 			"Total number of cached requests served",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		uncachedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "uncached"),
 			"Total number of requests served from the origin",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		encryptedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "encrypted"),
 			"The number of requests served over HTTPS",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		unencryptedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "unencrypted"),
 			"The number of requests served over HTTP",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byStatusRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_status"),
 			"The total number of requests broken out by status code",
-			[]string{"zone_id", "zone_name", "status_code"}, nil,
+			[]string{"zone_id", "zone_name", "status_code", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byContentTypeRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_content_type"),
 			"The total number of requests broken out by content type",
-			[]string{"zone_id", "zone_name", "content_type"}, nil,
+			[]string{"zone_id", "zone_name", "content_type", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byCountryRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_country"),
 			"The total number of requests broken out by country",
-			[]string{"zone_id", "zone_name", "country_code"}, nil,
+			[]string{"zone_id", "zone_name", "country_code", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byIPClassRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "requests", "by_ip_class"),
 			"The total number of requests broken out by IP class",
-			[]string{"zone_id", "zone_name", "ip_class"}, nil,
+			[]string{"zone_id", "zone_name", "ip_class", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 
 		totalBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bandwidth", "total_bytes"),
 			"The total number of bytes served within the time frame",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		cachedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bandwidth", "cached_bytes"),
 			"The total number of bytes that were cached (and served) by Cloudflare",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		uncachedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bandwidth", "uncached_bytes"),
 			"The total number of bytes that were fetched and served from the origin server",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		encryptedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bandwidth", "encrypted_bytes"),
 			"The total number of bytes served over HTTPS",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		unencryptedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bandwidth", "unencrypted_bytes"),
 			"The total number of bytes served over HTTP",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byContentTypeBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bandwidth", "by_content_type_bytes"),
 			"The total number of bytes served broken out by content type",
-			[]string{"zone_id", "zone_name", "content_type"}, nil,
+			[]string{"zone_id", "zone_name", "content_type", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byCountryBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bandwidth", "by_country_bytes"),
 			"The total number of bytes served broken out by country",
-			[]string{"zone_id", "zone_name", "country_code"}, nil,
+			[]string{"zone_id", "zone_name", "country_code", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 
 		allThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "threats", "total"),
 			"The total number of identifiable threats received",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byTypeThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "threats", "by_type"),
 			"The total number of identifiable threats received broken out by type",
-			[]string{"zone_id", "zone_name", "type"}, nil,
+			[]string{"zone_id", "zone_name", "type", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		byCountryThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "threats", "by_country"),
 			"The total number of identifiable threats received broken out by country",
-			[]string{"zone_id", "zone_name", "country_code"}, nil,
+			[]string{"zone_id", "zone_name", "country_code", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 
 		allPageviews: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "pageviews", "total"),
 			"The total number of pageviews served",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 		bySearchEnginePageviews: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "pageviews", "by_search_engine"),
 			"The total number of pageviews served broken out by search engine",
-			[]string{"zone_id", "zone_name", "search_engine"}, nil,
+			[]string{"zone_id", "zone_name", "search_engine", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 
 		uniqueIPAddresses: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "unique_ip_addresses", "total"),
 			"Total number of unique IP addresses",
-			[]string{"zone_id", "zone_name"}, nil,
+			[]string{"zone_id", "zone_name", "colo_id", "colo_name", "colo_region"}, nil,
 		),
 
 		dnsQueryTotal: prometheus.NewDesc(
@@ -291,6 +291,11 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.dnsQueryTotal
 	ch <- e.uncachedDNSQueries
 	ch <- e.staleDNSQueries
+
+	ch <- e.popStatus
+	ch <- e.regionStatus
+	ch <- e.serviceStatus
+	ch <- e.overallStatus
 }
 
 // Collect fetches the statistics from the configured cloudflare server, and
@@ -315,60 +320,88 @@ func (e *Exporter) getDashboardAnalytics(ch chan<- prometheus.Metric, z cloudfla
 		sinceTime = now.Add(-24 * time.Hour) // Pro plans get 15 minute resolution, minimum -24 hours
 	}
 	continuous := false
-	data, err := e.cf.ZoneAnalyticsDashboard(z.ID, cloudflare.ZoneAnalyticsOptions{
+	opts := cloudflare.ZoneAnalyticsOptions{
 		Since:      &sinceTime,
 		Until:      &now,
 		Continuous: &continuous,
-	})
+	}
+	var data []cloudflare.ZoneAnalyticsData
+	var err error
+	if z.Plan.Price > 200 {
+		data, err = e.cf.ZoneAnalyticsByColocation(z.ID, opts)
+	} else {
+		singleData, singleDataErr := e.cf.ZoneAnalyticsDashboard(z.ID, opts)
+		err = singleDataErr
+		data = append(data, singleData)
+	}
 	if err != nil {
 		log.Errorf("failed to get dashboard analytics from cloudflare for zone %s: %s", z.Name, err)
 		return
 	}
 
-	ch <- prometheus.MustNewConstMetric(e.allRequests, prometheus.CounterValue, float64(data.Totals.Requests.All), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.cachedRequests, prometheus.CounterValue, float64(data.Totals.Requests.Cached), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.uncachedRequests, prometheus.CounterValue, float64(data.Totals.Requests.Uncached), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.encryptedRequests, prometheus.CounterValue, float64(data.Totals.Requests.SSL.Encrypted), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.unencryptedRequests, prometheus.CounterValue, float64(data.Totals.Requests.SSL.Unencrypted), z.ID, z.Name)
-	for code, count := range data.Totals.Requests.HTTPStatus {
-		ch <- prometheus.MustNewConstMetric(e.byStatusRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, code)
-	}
-	for contentType, count := range data.Totals.Requests.ContentType {
-		ch <- prometheus.MustNewConstMetric(e.byContentTypeRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, contentType)
-	}
-	for country, count := range data.Totals.Requests.Country {
-		ch <- prometheus.MustNewConstMetric(e.byCountryRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, country)
-	}
-	for class, count := range data.Totals.Requests.IPClass {
-		ch <- prometheus.MustNewConstMetric(e.byIPClassRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, class)
-	}
+	for _, entry := range data {
+		coloID := ""
+		coloName := ""
+		coloRegion := ""
+		if z.Plan.Price > 200 && entry.ColocationID != "" {
+			colo := e.getColo(entry.ColocationID)
+			if entry.ColocationID == "SJC-PIG" {
+				colo = e.getColo("SJC")
+			}
+			coloID = colo.Code
+			coloName = colo.Name
+			coloRegion = colo.Region
+			if coloID == "SJC-PIG" {
+				coloName = e.colos["SJC"].Name
+				coloRegion = e.colos["SJC"].Region
+			}
+		}
 
-	ch <- prometheus.MustNewConstMetric(e.totalBandwidth, prometheus.GaugeValue, float64(data.Totals.Bandwidth.All), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.cachedBandwidth, prometheus.GaugeValue, float64(data.Totals.Bandwidth.Cached), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.uncachedBandwidth, prometheus.GaugeValue, float64(data.Totals.Bandwidth.Uncached), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.encryptedBandwidth, prometheus.GaugeValue, float64(data.Totals.Bandwidth.SSL.Encrypted), z.ID, z.Name)
-	ch <- prometheus.MustNewConstMetric(e.unencryptedBandwidth, prometheus.GaugeValue, float64(data.Totals.Bandwidth.SSL.Unencrypted), z.ID, z.Name)
-	for contentType, count := range data.Totals.Bandwidth.ContentType {
-		ch <- prometheus.MustNewConstMetric(e.byContentTypeBandwidth, prometheus.GaugeValue, float64(count), z.ID, z.Name, contentType)
-	}
-	for country, count := range data.Totals.Bandwidth.Country {
-		ch <- prometheus.MustNewConstMetric(e.byCountryBandwidth, prometheus.GaugeValue, float64(count), z.ID, z.Name, country)
-	}
+		ch <- prometheus.MustNewConstMetric(e.allRequests, prometheus.CounterValue, float64(entry.Totals.Requests.All), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.cachedRequests, prometheus.CounterValue, float64(entry.Totals.Requests.Cached), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.uncachedRequests, prometheus.CounterValue, float64(entry.Totals.Requests.Uncached), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.encryptedRequests, prometheus.CounterValue, float64(entry.Totals.Requests.SSL.Encrypted), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.unencryptedRequests, prometheus.CounterValue, float64(entry.Totals.Requests.SSL.Unencrypted), z.ID, z.Name, coloID, coloName, coloRegion)
+		for code, count := range entry.Totals.Requests.HTTPStatus {
+			ch <- prometheus.MustNewConstMetric(e.byStatusRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, code, coloID, coloName, coloRegion)
+		}
+		for contentType, count := range entry.Totals.Requests.ContentType {
+			ch <- prometheus.MustNewConstMetric(e.byContentTypeRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, contentType, coloID, coloName, coloRegion)
+		}
+		for country, count := range entry.Totals.Requests.Country {
+			ch <- prometheus.MustNewConstMetric(e.byCountryRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, country, coloID, coloName, coloRegion)
+		}
+		for class, count := range entry.Totals.Requests.IPClass {
+			ch <- prometheus.MustNewConstMetric(e.byIPClassRequests, prometheus.CounterValue, float64(count), z.ID, z.Name, class, coloID, coloName, coloRegion)
+		}
 
-	ch <- prometheus.MustNewConstMetric(e.allThreats, prometheus.GaugeValue, float64(data.Totals.Threats.All), z.ID, z.Name)
-	for threatType, count := range data.Totals.Threats.Type {
-		ch <- prometheus.MustNewConstMetric(e.byTypeThreats, prometheus.GaugeValue, float64(count), z.ID, z.Name, threatType)
-	}
-	for country, count := range data.Totals.Threats.Country {
-		ch <- prometheus.MustNewConstMetric(e.byCountryThreats, prometheus.GaugeValue, float64(count), z.ID, z.Name, country)
-	}
+		ch <- prometheus.MustNewConstMetric(e.totalBandwidth, prometheus.GaugeValue, float64(entry.Totals.Bandwidth.All), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.cachedBandwidth, prometheus.GaugeValue, float64(entry.Totals.Bandwidth.Cached), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.uncachedBandwidth, prometheus.GaugeValue, float64(entry.Totals.Bandwidth.Uncached), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.encryptedBandwidth, prometheus.GaugeValue, float64(entry.Totals.Bandwidth.SSL.Encrypted), z.ID, z.Name, coloID, coloName, coloRegion)
+		ch <- prometheus.MustNewConstMetric(e.unencryptedBandwidth, prometheus.GaugeValue, float64(entry.Totals.Bandwidth.SSL.Unencrypted), z.ID, z.Name, coloID, coloName, coloRegion)
+		for contentType, count := range entry.Totals.Bandwidth.ContentType {
+			ch <- prometheus.MustNewConstMetric(e.byContentTypeBandwidth, prometheus.GaugeValue, float64(count), z.ID, z.Name, contentType, coloID, coloName, coloRegion)
+		}
+		for country, count := range entry.Totals.Bandwidth.Country {
+			ch <- prometheus.MustNewConstMetric(e.byCountryBandwidth, prometheus.GaugeValue, float64(count), z.ID, z.Name, country, coloID, coloName, coloRegion)
+		}
 
-	ch <- prometheus.MustNewConstMetric(e.allPageviews, prometheus.GaugeValue, float64(data.Totals.Pageviews.All), z.ID, z.Name)
-	for searchEngine, count := range data.Totals.Pageviews.SearchEngines {
-		ch <- prometheus.MustNewConstMetric(e.bySearchEnginePageviews, prometheus.GaugeValue, float64(count), z.ID, z.Name, searchEngine)
-	}
+		ch <- prometheus.MustNewConstMetric(e.allThreats, prometheus.GaugeValue, float64(entry.Totals.Threats.All), z.ID, z.Name, coloID, coloName, coloRegion)
+		for threatType, count := range entry.Totals.Threats.Type {
+			ch <- prometheus.MustNewConstMetric(e.byTypeThreats, prometheus.GaugeValue, float64(count), z.ID, z.Name, threatType, coloID, coloName, coloRegion)
+		}
+		for country, count := range entry.Totals.Threats.Country {
+			ch <- prometheus.MustNewConstMetric(e.byCountryThreats, prometheus.GaugeValue, float64(count), z.ID, z.Name, country, coloID, coloName, coloRegion)
+		}
 
-	ch <- prometheus.MustNewConstMetric(e.uniqueIPAddresses, prometheus.GaugeValue, float64(data.Totals.Uniques.All), z.ID, z.Name)
+		ch <- prometheus.MustNewConstMetric(e.allPageviews, prometheus.GaugeValue, float64(entry.Totals.Pageviews.All), z.ID, z.Name, coloID, coloName, coloRegion)
+		for searchEngine, count := range entry.Totals.Pageviews.SearchEngines {
+			ch <- prometheus.MustNewConstMetric(e.bySearchEnginePageviews, prometheus.GaugeValue, float64(count), z.ID, z.Name, searchEngine, coloID, coloName, coloRegion)
+		}
+
+		ch <- prometheus.MustNewConstMetric(e.uniqueIPAddresses, prometheus.GaugeValue, float64(entry.Totals.Uniques.All), z.ID, z.Name, coloID, coloName, coloRegion)
+	}
 }
 
 func (e *Exporter) getDNSAnalytics(ch chan<- prometheus.Metric, z cloudflare.Zone) {
@@ -401,18 +434,18 @@ func (e *Exporter) getDNSAnalytics(ch chan<- prometheus.Metric, z cloudflare.Zon
 		origin := row.Dimensions[2]
 		tcp := row.Dimensions[3]
 		ipVersion := row.Dimensions[4]
-		coloID := "N/A"
-		queryType := "N/A"
-		coloName := "N/A"
-		coloRegion := "N/A"
+		coloID := ""
+		queryType := ""
+		coloName := ""
+		coloRegion := ""
 		if len(row.Dimensions) >= 6 {
-			coloID = row.Dimensions[5]
-			coloName = e.colos[coloID].Name
-			coloRegion = e.colos[coloID].Region
-			if coloID == "SJC-PIG" {
-				coloName = e.colos["SJC"].Name
-				coloRegion = e.colos["SJC"].Region
+			colo := e.getColo(row.Dimensions[5])
+			if row.Dimensions[5] == "SJC-PIG" {
+				colo = e.getColo("SJC")
 			}
+			coloID = colo.Code
+			coloName = colo.Name
+			coloRegion = colo.Region
 		}
 		if len(row.Dimensions) == 7 {
 			queryType = row.Dimensions[6]
@@ -435,6 +468,10 @@ type colo struct {
 	Name   string
 	Code   string
 	Region string
+}
+
+func (e *Exporter) getColo(coloID string) colo {
+	return e.colos[coloID]
 }
 
 type statusPageSummary struct {
