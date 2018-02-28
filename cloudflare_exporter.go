@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"strings"
 
 	"github.com/cloudflare/cloudflare-go"
@@ -27,11 +28,114 @@ type cloudflareOpts struct {
 	DNSAnalytics       bool
 }
 
-var reg = prometheus.NewPedanticRegistry()
+var registry = prometheus.NewPedanticRegistry()
+var userAgentHeader = fmt.Sprintf("cloudflare_exporter/%s", version.Version)
+var httpClient = http.DefaultClient
 
 func init() {
-	reg.MustRegister(version.NewCollector("cloudflare_exporter"))
+	registry.MustRegister(version.NewCollector("cloudflare_exporter"))
 	initPops()
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	gatherers := prometheus.Gatherers{
+		prometheus.DefaultGatherer,
+		registry,
+	}
+	// Delegate http serving to Prometheus client library, which will call collector.Collect.
+	h := promhttp.InstrumentMetricHandler(
+		registry,
+		promhttp.HandlerFor(gatherers,
+			promhttp.HandlerOpts{
+				ErrorLog:      log.NewErrorLogger(),
+				ErrorHandling: promhttp.ContinueOnError,
+			}),
+	)
+	h.ServeHTTP(w, r)
+}
+
+func instrumentedHTTPClient() *http.Client {
+	inFlightGauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cloudflare_exporter_in_flight_requests",
+		Help: "A gauge of in-flight requests for the wrapped client.",
+	})
+
+	counter := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cloudflare_exporter_api_requests_total",
+			Help: "A counter for requests from the wrapped client.",
+		},
+		[]string{"code", "method"},
+	)
+
+	// dnsLatencyVec uses custom buckets based on expected dns durations.
+	// It has an instance label "event", which is set in the
+	// DNSStart and DNSDonehook functions defined in the
+	// InstrumentTrace struct below.
+	dnsLatencyVec := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "dns_duration_seconds",
+			Help:    "Trace dns latency histogram.",
+			Buckets: []float64{.005, .01, .025, .05},
+		},
+		[]string{"event"},
+	)
+
+	// tlsLatencyVec uses custom buckets based on expected tls durations.
+	// It has an instance label "event", which is set in the
+	// TLSHandshakeStart and TLSHandshakeDone hook functions defined in the
+	// InstrumentTrace struct below.
+	tlsLatencyVec := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "tls_duration_seconds",
+			Help:    "Trace tls latency histogram.",
+			Buckets: []float64{.05, .1, .25, .5},
+		},
+		[]string{"event"},
+	)
+
+	// histVec has no labels, making it a zero-dimensional ObserverVec.
+	histVec := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "request_duration_seconds",
+			Help:    "A histogram of request latencies.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{},
+	)
+
+	// Register all of the metrics in the standard registry.
+	prometheus.MustRegister(counter, tlsLatencyVec, dnsLatencyVec, histVec, inFlightGauge)
+
+	// Define functions for the available httptrace.ClientTrace hook
+	// functions that we want to instrument.
+	trace := &promhttp.InstrumentTrace{
+		DNSStart: func(t float64) {
+			dnsLatencyVec.WithLabelValues("dns_start")
+		},
+		DNSDone: func(t float64) {
+			dnsLatencyVec.WithLabelValues("dns_done")
+		},
+		TLSHandshakeStart: func(t float64) {
+			tlsLatencyVec.WithLabelValues("tls_handshake_start")
+		},
+		TLSHandshakeDone: func(t float64) {
+			tlsLatencyVec.WithLabelValues("tls_handshake_done")
+		},
+	}
+
+	// Wrap the default RoundTripper with middleware.
+	roundTripper := promhttp.InstrumentRoundTripperInFlight(inFlightGauge,
+		promhttp.InstrumentRoundTripperCounter(counter,
+			promhttp.InstrumentRoundTripperTrace(trace,
+				promhttp.InstrumentRoundTripperDuration(histVec, http.DefaultTransport),
+			),
+		),
+	)
+
+	// Set the RoundTripper on our client.
+	httpClient.Transport = roundTripper
+	return httpClient
 }
 
 func main() {
@@ -61,7 +165,7 @@ func main() {
 		}
 	}
 
-	api, err := cloudflare.New(opts.Key, opts.Email)
+	api, err := cloudflare.New(opts.Key, opts.Email, cloudflare.Headers(http.Header{"User-Agent": []string{userAgentHeader}}), cloudflare.HTTPClient(instrumentedHTTPClient()))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -80,14 +184,14 @@ func main() {
 
 	zoneRows := []string{}
 	zoneNames := []string{}
-	reg.MustRegister(NewStatusExporter())
+	registry.MustRegister(NewStatusExporter())
 	for _, zone := range zones {
-		reg.MustRegister(NewZoneExporter(api, zone))
+		registry.MustRegister(NewZoneExporter(api, zone))
 		zoneNames = append(zoneNames, zone.Name)
 		zoneRows = append(zoneRows, `<tr><td><a target="_blank" href="https://www.cloudflare.com/a/overview/`+zone.Name+`">`+zone.Name+`</a></td><td>`+zone.ID+`</td></tr>`)
 	}
 
-	http.Handle(*metricsPath, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	http.HandleFunc(*metricsPath, handler)
 	http.HandleFunc("/pops.json", func(w http.ResponseWriter, r *http.Request) {
 		marshalledPoPs, _ := json.Marshal(pops)
 		w.Header().Set("Content-Type", "application/json")

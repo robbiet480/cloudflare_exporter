@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -17,18 +16,46 @@ var popIDRegex = regexp.MustCompile(`(.*) - \((.*)\)`)
 
 // StatusExporter collects metrics about Cloudflare system status.
 type StatusExporter struct {
-	pops map[string]pop
-
 	popStatus     *prometheus.Desc
 	serviceStatus *prometheus.Desc
 	regionStatus  *prometheus.Desc
 	overallStatus *prometheus.Desc
 }
 
+type statusPageSummary struct {
+	Page   interface{} `json:"page"`
+	Status struct {
+		Description string `json:"description"`
+		Indicator   string `json:"indicator"`
+	} `json:"status"`
+	Components []struct {
+		Status             string    `json:"status"`
+		Name               string    `json:"name"`
+		CreatedAt          time.Time `json:"created_at"`
+		UpdatedAt          time.Time `json:"updated_at"`
+		Position           int       `json:"position"`
+		Description        string    `json:"description"`
+		Showcase           bool      `json:"showcase"`
+		ID                 string    `json:"id"`
+		GroupID            string    `json:"group_id"`
+		PageID             string    `json:"page_id"`
+		Group              bool      `json:"group"`
+		OnlyShowIfDegraded bool      `json:"only_show_if_degraded"`
+	} `json:"components"`
+	Incidents             interface{} `json:"incidents"`
+	ScheduledMaintenances interface{} `json:"scheduled_maintenances"`
+}
+
+func getStatusFloat(status string) float64 {
+	if status == "none" || status == "operational" {
+		return float64(1)
+	}
+	return float64(0)
+}
+
 // NewStatusExporter returns an initialized StatusExporter.
 func NewStatusExporter() *StatusExporter {
 	return &StatusExporter{
-		pops: map[string]pop{},
 		popStatus: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "pop", "status"),
 			"Cloudflare Point of Presence (PoP) status",
@@ -73,7 +100,7 @@ func (e *StatusExporter) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	req.Header.Set("User-Agent", "cloudflare_exporter")
+	req.Header.Set("User-Agent", userAgentHeader)
 
 	res, getErr := http.DefaultClient.Do(req)
 	if getErr != nil {
@@ -122,61 +149,4 @@ func (e *StatusExporter) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	ch <- prometheus.MustNewConstMetric(e.overallStatus, prometheus.GaugeValue, getStatusFloat(statusSummary.Status.Indicator), statusSummary.Status.Indicator, statusSummary.Status.Description)
-}
-
-func getStatusFloat(status string) float64 {
-	if status == "none" || status == "operational" {
-		return float64(1)
-	}
-	return float64(0)
-}
-
-type statusPageSummary struct {
-	Page   interface{} `json:"page"`
-	Status struct {
-		Description string `json:"description"`
-		Indicator   string `json:"indicator"`
-	} `json:"status"`
-	Components []struct {
-		Status             string    `json:"status"`
-		Name               string    `json:"name"`
-		CreatedAt          time.Time `json:"created_at"`
-		UpdatedAt          time.Time `json:"updated_at"`
-		Position           int       `json:"position"`
-		Description        string    `json:"description"`
-		Showcase           bool      `json:"showcase"`
-		ID                 string    `json:"id"`
-		GroupID            string    `json:"group_id"`
-		PageID             string    `json:"page_id"`
-		Group              bool      `json:"group"`
-		OnlyShowIfDegraded bool      `json:"only_show_if_degraded"`
-	} `json:"components"`
-	Incidents             interface{} `json:"incidents"`
-	ScheduledMaintenances interface{} `json:"scheduled_maintenances"`
-}
-
-func summaryRequest() (*statusPageSummary, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://www.cloudflarestatus.com/api/v2/summary.json", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cloudflare status: %s", err)
-	}
-
-	req.Header.Set("User-Agent", "cloudflare_exporter")
-
-	res, getErr := http.DefaultClient.Do(req)
-	if getErr != nil {
-		return nil, fmt.Errorf("failed to get cloudflare status: %s", getErr)
-	}
-
-	body, readErr := ioutil.ReadAll(res.Body)
-	if readErr != nil {
-		return nil, fmt.Errorf("failed to get cloudflare status: %s", readErr)
-	}
-
-	statusSummary := statusPageSummary{}
-	jsonErr := json.Unmarshal(body, &statusSummary)
-	if jsonErr != nil {
-		return nil, fmt.Errorf("failed to get cloudflare status: %s", jsonErr)
-	}
-	return &statusSummary, nil
 }
