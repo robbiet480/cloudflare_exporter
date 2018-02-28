@@ -13,11 +13,11 @@ import (
 	"github.com/prometheus/common/log"
 )
 
-var coloIDRegex = regexp.MustCompile(`(.*) - \((.*)\)`)
+var popIDRegex = regexp.MustCompile(`(.*) - \((.*)\)`)
 
 // StatusExporter collects metrics about Cloudflare system status.
 type StatusExporter struct {
-	colos map[string]colo
+	pops map[string]pop
 
 	popStatus     *prometheus.Desc
 	serviceStatus *prometheus.Desc
@@ -28,11 +28,11 @@ type StatusExporter struct {
 // NewStatusExporter returns an initialized StatusExporter.
 func NewStatusExporter() *StatusExporter {
 	return &StatusExporter{
-		colos: map[string]colo{},
+		pops: map[string]pop{},
 		popStatus: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "pop", "status"),
 			"Cloudflare Point of Presence (PoP) status",
-			[]string{"status", "colo_name", "colo_id", "region_name"}, nil,
+			[]string{"status", "pop_name", "pop_id", "region_name"}, nil,
 		),
 
 		regionStatus: prometheus.NewDesc(
@@ -67,9 +67,31 @@ func (e *StatusExporter) Describe(ch chan<- *prometheus.Desc) {
 // Collect fetches the statistics about Cloudflare system status, and
 // delivers them as Prometheus metrics. It implements prometheus.Collector.
 func (e *StatusExporter) Collect(ch chan<- prometheus.Metric) {
-	statusSummary, statusSummaryErr := summaryRequest()
-	if statusSummaryErr != nil {
-		log.Fatal(statusSummaryErr)
+	req, err := http.NewRequest(http.MethodGet, "https://www.cloudflarestatus.com/api/v2/summary.json", nil)
+	if err != nil {
+		log.Errorf("failed to get cloudflare status: %s", err)
+		return
+	}
+
+	req.Header.Set("User-Agent", "cloudflare_exporter")
+
+	res, getErr := http.DefaultClient.Do(req)
+	if getErr != nil {
+		log.Errorf("failed to get cloudflare status: %s", getErr)
+		return
+	}
+
+	body, readErr := ioutil.ReadAll(res.Body)
+	if readErr != nil {
+		log.Errorf("failed to get cloudflare status: %s", readErr)
+		return
+	}
+
+	statusSummary := statusPageSummary{}
+	jsonErr := json.Unmarshal(body, &statusSummary)
+	if jsonErr != nil {
+		log.Errorf("failed to get cloudflare status: %s", jsonErr)
+		return
 	}
 
 	groupMap := map[string]string{}
@@ -87,13 +109,13 @@ func (e *StatusExporter) Collect(ch chan<- prometheus.Metric) {
 		if component.Group {
 			continue
 		}
-		matches := coloIDRegex.FindStringSubmatch(component.Name)
+		matches := popIDRegex.FindStringSubmatch(component.Name)
 		if len(matches) > 0 {
-			coloName := matches[1]
-			coloCode := matches[2]
+			popName := matches[1]
+			popCode := matches[2]
 			regionName := groupMap[component.GroupID]
-			ch <- prometheus.MustNewConstMetric(e.popStatus, prometheus.GaugeValue, getStatusFloat(component.Status), component.Status, coloName, coloCode, regionName)
-			e.colos[coloCode] = colo{Name: coloName, Code: coloCode, Region: regionName}
+			ch <- prometheus.MustNewConstMetric(e.popStatus, prometheus.GaugeValue, getStatusFloat(component.Status), component.Status, popName, popCode, regionName)
+			addPop(pop{Name: popName, Code: popCode, Region: regionName})
 		} else {
 			ch <- prometheus.MustNewConstMetric(e.serviceStatus, prometheus.GaugeValue, getStatusFloat(component.Status), component.Status, component.Name)
 		}
@@ -131,37 +153,6 @@ type statusPageSummary struct {
 	} `json:"components"`
 	Incidents             interface{} `json:"incidents"`
 	ScheduledMaintenances interface{} `json:"scheduled_maintenances"`
-}
-
-func getColoMap() (map[string]colo, error) {
-	req, reqErr := summaryRequest()
-	if reqErr != nil {
-		return nil, reqErr
-	}
-
-	groupMap := map[string]string{}
-
-	coloMap := map[string]colo{}
-
-	for _, component := range req.Components {
-		if component.Group {
-			groupMap[component.ID] = component.Name
-		}
-	}
-
-	for _, component := range req.Components {
-		if component.Group {
-			continue
-		}
-		matches := coloIDRegex.FindStringSubmatch(component.Name)
-		if len(matches) > 0 {
-			coloName := matches[1]
-			coloCode := matches[2]
-			regionName := groupMap[component.GroupID]
-			coloMap[coloCode] = colo{Name: coloName, Code: coloCode, Region: regionName}
-		}
-	}
-	return coloMap, nil
 }
 
 func summaryRequest() (*statusPageSummary, error) {

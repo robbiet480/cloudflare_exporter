@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,14 +27,11 @@ type cloudflareOpts struct {
 	DNSAnalytics       bool
 }
 
-type colo struct {
-	Name   string
-	Code   string
-	Region string
-}
+var reg = prometheus.NewPedanticRegistry()
 
 func init() {
-	prometheus.MustRegister(version.NewCollector("cloudflare_exporter"))
+	reg.MustRegister(version.NewCollector("cloudflare_exporter"))
+	initPops()
 }
 
 func main() {
@@ -80,23 +78,21 @@ func main() {
 		log.Fatal(err)
 	}
 
-	coloMap, coloMapErr := getColoMap()
-	if coloMapErr != nil {
-		log.Fatal(coloMapErr)
-		return
-	}
-
 	zoneRows := []string{}
 	zoneNames := []string{}
-	reg := prometheus.NewPedanticRegistry()
 	reg.MustRegister(NewStatusExporter())
 	for _, zone := range zones {
-		reg.MustRegister(NewZoneExporter(api, coloMap, zone))
+		reg.MustRegister(NewZoneExporter(api, zone))
 		zoneNames = append(zoneNames, zone.Name)
 		zoneRows = append(zoneRows, `<tr><td><a target="_blank" href="https://www.cloudflare.com/a/overview/`+zone.Name+`">`+zone.Name+`</a></td><td>`+zone.ID+`</td></tr>`)
 	}
 
 	http.Handle(*metricsPath, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	http.HandleFunc("/pops.json", func(w http.ResponseWriter, r *http.Request) {
+		marshalledPoPs, _ := json.Marshal(pops)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(marshalledPoPs)
+	})
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
                       <head>
@@ -119,13 +115,15 @@ func main() {
                           </thead>
                           <tbody>` + strings.Join(zoneRows, "\n") + `</tbody>
                         </table>
+                        <h2>Misc</h2>
+                        <p><a href="/pops.json">Here's all the Points of Presence (PoPs) I know about</a></p>
                         <h2>Build</h2>
                         <pre>` + version.Info() + ` ` + version.BuildContext() + `</pre>
                       </body>
                     </html>`))
 	})
 	log.Infoln("Starting HTTP server on", *listenAddress)
-	log.Infoln("Monitoring zone(s):", strings.Join(zoneNames, ", "))
+	log.Infoln("Exposing metrics for zone(s):", strings.Join(zoneNames, ", "))
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
 
 }
