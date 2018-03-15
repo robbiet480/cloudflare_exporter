@@ -66,7 +66,7 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 	dnsMetricsNamespace := namespace
 	dnsMetricsHelpSuffix := ""
 
-	// Free ($0) plans:
+	// Free plans:
 	// Dashboard Analytics is for Global Cloudflare network
 	// Dashboard Analytics Labels are empty
 	// Dashboard Analytics Namespace is "cloudflare"
@@ -75,7 +75,7 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 	// DNS Analytics Dimensions contain queryName, responseCode, origin, tcp, ipVersion
 	// DNS Analytics Namespace is "cloudflare"
 
-	// Pro ($20) plans:
+	// Pro plans:
 	// Dashboard Analytics is for Global Cloudflare network
 	// Dashboard Analytics Labels are empty
 	// Dashboard Analytics Namespace is "cloudflare"
@@ -84,7 +84,7 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 	// DNS Analytics Dimensions contain queryName, responseCode, origin, tcp, ipVersion, responseCached, coloName (really ID, name/region provided by statuspage)
 	// DNS Analytics Namespace is "cloudflare_pop"
 
-	// Business ($200) plans:
+	// Business plans:
 	// Dashboard Analytics is for Global Cloudflare network
 	// Dashboard Analytics Labels are empty
 	// Dashboard Analytics Namespace is "cloudflare"
@@ -93,7 +93,7 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 	// DNS Analytics Dimensions contain queryName, responseCode, origin, tcp, ipVersion, responseCached, queryType, coloName (really ID, name/region provided by statuspage)
 	// DNS Analytics Namespace is "cloudflare_pop"
 
-	// Enterprise (Above $200) plans:
+	// Enterprise plans:
 	// Dashboard Analytics broken out by point of presence (PoP, sometimes also called "colo")
 	// Dashboard Analytics Labels are pop_id, pop_name, pop_region
 	// Dashboard Analytics Namespace is "cloudflare_pop"
@@ -102,7 +102,7 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 	// DNS Analytics Dimensions contain queryName, responseCode, origin, tcp, ipVersion, responseCached, queryType, coloName (really ID, name/region provided by statuspage)
 	// DNS Analytics Namespace is "cloudflare_pop"
 
-	if zone.Plan.Price > 200 {
+	if zone.Plan.LegacyID == "enterprise" {
 		dashboardMetricsHelpSuffix = "(broken out by point of presence (PoP))"
 		dashboardMetricsLabels = []string{"pop_id", "pop_name", "pop_region"}
 		dashboardMetricsNamespace = fmt.Sprintf("%s_pop", namespace)
@@ -111,19 +111,19 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 		dnsMetricsHelpSuffix = "(broken out by point of presence (PoP))"
 		dnsMetricsLabels = []string{"query_name", "response_code", "origin", "tcp", "ip_version", "response_cached", "query_type", "pop_id", "pop_name", "pop_region"}
 		dnsMetricsNamespace = fmt.Sprintf("%s_pop", namespace)
-	} else if zone.Plan.Price == 200 {
+	} else if zone.Plan.LegacyID == "business" {
 		dnsMetricsNamespace = fmt.Sprintf("%s_pop", namespace)
 		dnsDimensions = []string{"queryName", "responseCode", "origin", "tcp", "ipVersion", "responseCached", "queryType", "coloName"}
 		dnsMetricsHelpSuffix = "(broken out by point of presence (PoP))"
 		dnsMetricsLabels = []string{"query_name", "response_code", "origin", "tcp", "ip_version", "response_cached", "query_type", "pop_id", "pop_name", "pop_region"}
-	} else if zone.Plan.Price == 20 {
+	} else if zone.Plan.LegacyID == "pro" {
 		dnsMetricsNamespace = fmt.Sprintf("%s_pop", namespace)
 		dnsDimensions = []string{"queryName", "responseCode", "origin", "tcp", "ipVersion", "responseCached", "coloName"}
 		dnsMetricsHelpSuffix = "(broken out by point of presence (PoP))"
 		dnsMetricsLabels = []string{"query_name", "response_code", "origin", "tcp", "ip_version", "response_cached", "pop_id", "pop_name", "pop_region"}
 	}
 
-	log.Debugf("Zone %s (%s) configured with price %d", zone.Name, zone.ID, zone.Plan.Price)
+	log.Debugf("Zone %s (%s) configured with plan %d", zone.Name, zone.ID, zone.Plan.LegacyID)
 	log.Debugf("Dashboard metrics namespace: '%s'", dashboardMetricsNamespace)
 	log.Debugf("Dashboard metrics labels: '%s'", strings.Join(dashboardMetricsLabels, ", "))
 
@@ -356,11 +356,11 @@ func (e *ZoneExporter) Collect(ch chan<- prometheus.Metric) {
 func (e *ZoneExporter) collectDashboardAnalytics(ch chan<- prometheus.Metric) {
 	now := time.Now()
 	sinceTime := now.Add(-10080 * time.Minute).UTC() // 7 days
-	if e.zone.Plan.Price > 200 {
+	if e.zone.Plan.LegacyID == "enterprise" {
 		sinceTime = now.Add(-30 * time.Minute).UTC() // Anything higher than business gets 1 minute resolution, minimum -30 minutes
-	} else if e.zone.Plan.Price == 200 {
+	} else if e.zone.Plan.LegacyID == "business" {
 		sinceTime = now.Add(-6 * time.Hour).UTC() // Business plans get 15 minute resolution, minimum -6 hours
-	} else if e.zone.Plan.Price == 20 {
+	} else if e.zone.Plan.LegacyID == "pro" {
 		sinceTime = now.Add(-24 * time.Hour).UTC() // Pro plans get 15 minute resolution, minimum -24 hours
 	}
 	continuous := true
@@ -370,7 +370,7 @@ func (e *ZoneExporter) collectDashboardAnalytics(ch chan<- prometheus.Metric) {
 	}
 	var data []cloudflare.ZoneAnalyticsData
 	var err error
-	if e.zone.Plan.Price > 200 {
+	if e.zone.Plan.LegacyID == "enterprise" {
 		data, err = e.cf.ZoneAnalyticsByColocation(e.zone.ID, opts)
 	} else {
 		singleData, singleDataErr := e.cf.ZoneAnalyticsDashboard(e.zone.ID, opts)
@@ -385,7 +385,7 @@ func (e *ZoneExporter) collectDashboardAnalytics(ch chan<- prometheus.Metric) {
 	for _, entry := range data {
 		labels := []string{}
 
-		if e.zone.Plan.Price > 200 {
+		if e.zone.Plan.LegacyID == "enterprise" {
 			pop := getPop(entry.ColocationID)
 			labels = append(labels, pop.Code, pop.Name, pop.Region)
 		}
