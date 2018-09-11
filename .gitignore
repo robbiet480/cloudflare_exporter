@@ -3,3 +3,4 @@
 /.tarballs
 /cloudflare_exporter
 *.tar.gz
+vendor/
