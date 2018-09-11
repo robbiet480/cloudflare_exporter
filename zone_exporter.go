@@ -118,12 +118,12 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 		dnsMetricsLabels = []string{"query_name", "response_code", "origin", "tcp", "ip_version", "response_cached", "query_type", "pop_id", "pop_name", "pop_region"}
 	} else if zone.Plan.LegacyID == "pro" {
 		dnsMetricsNamespace = fmt.Sprintf("%s_pop", namespace)
-		dnsDimensions = []string{"queryName", "responseCode", "origin", "tcp", "ipVersion", "responseCached", "coloName"}
+		dnsDimensions = []string{"queryName", "responseCode", "origin", "tcp", "ipVersion", "coloName"}
 		dnsMetricsHelpSuffix = "(broken out by point of presence (PoP))"
-		dnsMetricsLabels = []string{"query_name", "response_code", "origin", "tcp", "ip_version", "response_cached", "pop_id", "pop_name", "pop_region"}
+		dnsMetricsLabels = []string{"query_name", "response_code", "origin", "tcp", "ip_version", "pop_id", "pop_name", "pop_region"}
 	}
 
-	log.Debugf("Zone %s (%s) configured with plan %d", zone.Name, zone.ID, zone.Plan.LegacyID)
+	log.Debugf("Zone %s (%s) configured with plan %s", zone.Name, zone.ID, zone.Plan.LegacyID)
 	log.Debugf("Dashboard metrics namespace: '%s'", dashboardMetricsNamespace)
 	log.Debugf("Dashboard metrics labels: '%s'", strings.Join(dashboardMetricsLabels, ", "))
 
@@ -456,18 +456,11 @@ func (e *ZoneExporter) collectDNSAnalytics(ch chan<- prometheus.Metric) {
 		uncachedCount := row.Metrics[1][len(row.Metrics[1])-1]
 		staleCount := row.Metrics[2][len(row.Metrics[2])-1]
 
-		labels := []string{row.Dimensions[0], row.Dimensions[1], row.Dimensions[2], row.Dimensions[3], row.Dimensions[4]}
+		labels := row.Dimensions
 
-		if len(row.Dimensions) >= 6 {
-			labels = append(labels, row.Dimensions[5])
-		}
-
-		if len(row.Dimensions) >= 7 {
-			labels = append(labels, row.Dimensions[6])
-		}
-
-		if len(row.Dimensions) == 8 {
-			pop := getPop(row.Dimensions[7])
+		if e.dnsDimensions[len(e.dnsDimensions)-1] == "coloName" {
+			labels = row.Dimensions[:len(row.Dimensions)-1]
+			pop := getPop(row.Dimensions[len(row.Dimensions)-1])
 			labels = append(labels, pop.Code, pop.Name, pop.Region)
 		}
 
