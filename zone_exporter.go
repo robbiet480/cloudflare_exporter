@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	cloudflare "github.com/cloudflare/cloudflare-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
+	"github.com/robbiet480/cloudflare-go"
 )
 
 // ZoneExporter collects metrics for a Cloudflare zone.
@@ -15,6 +15,7 @@ type ZoneExporter struct {
 	cf            *cloudflare.API
 	zone          cloudflare.Zone
 	dnsDimensions []string
+	dnsMetrics    []string
 
 	allRequests      *prometheus.Desc
 	cachedRequests   *prometheus.Desc
@@ -62,6 +63,7 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 	dashboardMetricsHelpSuffix := ""
 
 	dnsDimensions := []string{"queryName", "responseCode", "origin", "tcp", "ipVersion"}
+	dnsMetrics := []string{"queryCount", "uncachedCount", "staleCount"}
 	dnsMetricsLabels := []string{"query_name", "response_code", "origin", "tcp", "ip_version"}
 	dnsMetricsNamespace := namespace
 	dnsMetricsHelpSuffix := ""
@@ -131,176 +133,194 @@ func NewZoneExporter(api *cloudflare.API, zone cloudflare.Zone) *ZoneExporter {
 	log.Debugf("DNS metrics labels: '%s'", strings.Join(dnsMetricsLabels, ", "))
 	log.Debugf("DNS dimensions: '%s'", strings.Join(dnsDimensions, ", "))
 
+	constantLabels := prometheus.Labels{
+		"zone_id":      zone.ID,
+		"zone_name":    zone.Name,
+		"account_id":   zone.Account.ID,
+		"account_name": zone.Account.Name,
+		"owner_id":     zone.Owner.ID,
+	}
+
+	if zone.Owner.Name != "" {
+		constantLabels["owner_name"] = zone.Owner.Name
+	}
+
+	if zone.Owner.Email != "" {
+		constantLabels["owner_email"] = zone.Owner.Email
+	}
+
 	return &ZoneExporter{
 		cf:            api,
 		zone:          zone,
 		dnsDimensions: dnsDimensions,
+		dnsMetrics:    dnsMetrics,
 		allRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "total"),
 			fmt.Sprintf("Total number of requests served %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		cachedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "cached"),
 			fmt.Sprintf("Total number of cached requests served %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		uncachedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "uncached"),
 			fmt.Sprintf("Total number of requests served from the origin %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		encryptedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "encrypted"),
 			fmt.Sprintf("The number of requests served over HTTPS %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		unencryptedRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "unencrypted"),
 			fmt.Sprintf("The number of requests served over HTTP %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byStatusRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "by_status"),
 			fmt.Sprintf("The total number of requests broken out by status code %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "status_code"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byContentTypeRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "by_content_type"),
 			fmt.Sprintf("The total number of requests broken out by content type %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "content_type"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byCountryRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "by_country"),
 			fmt.Sprintf("The total number of requests broken out by country %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "country_code"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byIPClassRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "requests", "by_ip_class"),
 			fmt.Sprintf("The total number of requests broken out by IP class %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "ip_class"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 
 		totalBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "bandwidth", "total_bytes"),
 			fmt.Sprintf("The total number of bytes served within the time frame %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		cachedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "bandwidth", "cached_bytes"),
 			fmt.Sprintf("The total number of bytes that were cached (and served) by Cloudflare %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		uncachedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "bandwidth", "uncached_bytes"),
 			fmt.Sprintf("The total number of bytes that were fetched and served from the origin server %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		encryptedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "bandwidth", "encrypted_bytes"),
 			fmt.Sprintf("The total number of bytes served over HTTPS %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		unencryptedBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "bandwidth", "unencrypted_bytes"),
 			fmt.Sprintf("The total number of bytes served over HTTP %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byContentTypeBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "bandwidth", "by_content_type_bytes"),
 			fmt.Sprintf("The total number of bytes served broken out by content type %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "content_type"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byCountryBandwidth: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "bandwidth", "by_country_bytes"),
 			fmt.Sprintf("The total number of bytes served broken out by country %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "country_code"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 
 		allThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "threats", "total"),
 			fmt.Sprintf("The total number of identifiable threats received %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byTypeThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "threats", "by_type"),
 			fmt.Sprintf("The total number of identifiable threats received broken out by type %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "type"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		byCountryThreats: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "threats", "by_country"),
 			fmt.Sprintf("The total number of identifiable threats received broken out by country %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "country_code"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 
 		allPageviews: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "pageviews", "total"),
 			fmt.Sprintf("The total number of pageviews served %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		bySearchEnginePageviews: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "pageviews", "by_search_engine"),
 			fmt.Sprintf("The total number of pageviews served broken out by search engine %s", dashboardMetricsHelpSuffix),
 			append(dashboardMetricsLabels, "search_engine"),
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 
 		uniqueIPAddresses: prometheus.NewDesc(
 			prometheus.BuildFQName(dashboardMetricsNamespace, "unique_ip_addresses", "total"),
 			fmt.Sprintf("Total number of unique IP addresses %s", dashboardMetricsHelpSuffix),
 			dashboardMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 
 		dnsQueryTotal: prometheus.NewDesc(
 			prometheus.BuildFQName(dnsMetricsNamespace, "dns_record", "queries_total"),
 			fmt.Sprintf("Total number of DNS queries %s", dnsMetricsHelpSuffix),
 			dnsMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		uncachedDNSQueries: prometheus.NewDesc(
 			prometheus.BuildFQName(dnsMetricsNamespace, "dns_record", "uncached_queries_total"),
 			fmt.Sprintf("Total number of uncached DNS queries %s", dnsMetricsHelpSuffix),
 			dnsMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		staleDNSQueries: prometheus.NewDesc(
 			prometheus.BuildFQName(dnsMetricsNamespace, "dns_record", "stale_queries_total"),
 			fmt.Sprintf("Total number of DNS queries %s", dnsMetricsHelpSuffix),
 			dnsMetricsLabels,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
+
 		componentProcessingTime: prometheus.NewDesc(
 			"cloudflare_exporter_component_processing_time_seconds",
 			"Component processing time in seconds",
 			[]string{"component"},
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 		overallProcessingTime: prometheus.NewDesc(
 			"cloudflare_exporter_processing_time_seconds",
 			"Processing time in seconds",
 			nil,
-			prometheus.Labels{"zone_id": zone.ID, "zone_name": zone.Name},
+			constantLabels,
 		),
 	}
 }
@@ -442,8 +462,9 @@ func (e *ZoneExporter) collectDashboardAnalytics(ch chan<- prometheus.Metric) {
 
 func (e *ZoneExporter) collectDNSAnalytics(ch chan<- prometheus.Metric) {
 	start := time.Now()
+
 	data, err := e.cf.ZoneDNSAnalyticsByTime(e.zone.ID, cloudflare.ZoneDNSAnalyticsOptions{
-		Metrics:    []string{"queryCount", "uncachedCount", "staleCount"},
+		Metrics:    e.dnsMetrics,
 		Dimensions: e.dnsDimensions,
 	})
 	if err != nil {

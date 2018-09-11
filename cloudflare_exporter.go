@@ -8,11 +8,11 @@ import (
 	_ "net/http/pprof"
 	"strings"
 
-	"github.com/cloudflare/cloudflare-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/version"
+	"github.com/robbiet480/cloudflare-go"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
